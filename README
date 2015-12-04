@@ -1,0 +1,1 @@
+	 rm -rf out/; ./vipr2.py -1 ../MUX1051_PDH132_ATCACG_L002/PDH132_s1.fastq.gz -2 ../MUX1051_PDH132_ATCACG_L002/PDH132_s2.fastq.gz -o out -c 8 --no-run
