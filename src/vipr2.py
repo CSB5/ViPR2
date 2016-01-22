@@ -48,13 +48,29 @@ CONFIG_FILE = "conf.json"
 # template variables to be written to CONFIG_FILE
 # FIXME might be better to have a template as well and add user variables only
 CONF = dict()
-# databases and files
+# programs
 CONF['FAMAS'] = "/mnt/software/stow/famas-0.0.10/bin/famas"
 CONF['BWA'] = '/mnt/software/stow/bwa-0.7.12/bin/bwa'
+CONF['SAMTOOLS'] = '/mnt/software/stow/samtools-1.1/bin/samtools'
+CONF['PRIMER_POS_FROM_SEQ'] = os.path.abspath(
+        os.path.join(os.path.dirname(sys.argv[0]), "primer_pos_from_seq.sh"))
+CONF['COVERAGE_PLOT'] = os.path.abspath(
+        os.path.join(os.path.dirname(sys.argv[0]), "coverage_plot.py"))
+CONF['MAPPING_SUCCESS'] = os.path.abspath(
+        os.path.join(os.path.dirname(sys.argv[0]), "mapping_success.sh"))
+CONF['PRIMER_POS_FROM_SEQ'] = os.path.abspath(
+        os.path.join(os.path.dirname(sys.argv[0]), "primer_pos_from_seq.sh"))
+CONF['MARK_PRIMER'] = os.path.abspath(
+        os.path.join(os.path.dirname(sys.argv[0]), "mark_primer.py"))
+CONF['PRIMER_POS_TO_BED'] = os.path.abspath(
+        os.path.join(os.path.dirname(sys.argv[0]), "primer_pos_to_bed.py"))
+# settings
 CONF['DEBUG'] = False
-# CONF['REFFA'] written later
-# CONF['SAMPLENAME'] written later
-# CONF['SAMPLES'] written later
+# written dynamically
+# CONF['REFFA']
+# CONF['SAMPLENAME']
+# CONF['SAMPLES']
+
 
 def main():
     """The main function
@@ -138,8 +154,8 @@ def main():
     config_file = os.path.join(args.outdir, CONFIG_FILE)
     conf = copy.deepcopy(CONF)
     conf['SAMPLES'] = samples
-    conf['REFFA'] = args.reffa
-    conf['SAMPLENAME'] = args.samplename.replace(" ", "_")
+    conf['REFFA'] = os.path.abspath(args.reffa)
+    conf['SAMPLENAME'] = args.name.replace(" ", "_")
 
     with open(config_file, 'w') as fh:
         json.dump(conf, fh, indent=4)
