@@ -1,0 +1,10 @@
+** Prio
+- Fix report
+- Testing:
+  - simulated testcase: against correct and wrong reference
+  - clonal testcase: against correct and wrong reference
+- Add README.md and upload to github as GERMS_ViPR2
+        
+** Later
+- print primer positions in coverage plot
+- allow mapping against fixed reference

@@ -1,8 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """FIXME:add-doc
 
 """
-
 
 import os
 import sys
@@ -13,6 +12,10 @@ import json
 import shutil
 import subprocess
 import getpass
+import shlex
+
+LOG_REL_DIR="logs"
+
 
 try:
     # python 3
@@ -49,27 +52,35 @@ CONFIG_FILE = "conf.json"
 # FIXME might be better to have a template as well and add user variables only
 CONF = dict()
 # programs
-CONF['FAMAS'] = "/mnt/software/stow/famas-0.0.10/bin/famas"
+CONF['FAMAS'] = "/mnt/software/stow/famas-0.0.11/bin/famas"
 CONF['BWA'] = '/mnt/software/stow/bwa-0.7.12/bin/bwa'
 CONF['SAMTOOLS'] = '/mnt/software/stow/samtools-1.1/bin/samtools'
+CONF['IVA'] = os.path.abspath(
+        os.path.join(os.path.dirname(sys.argv[0]), "iva.sh"))
 CONF['PRIMER_POS_FROM_SEQ'] = os.path.abspath(
         os.path.join(os.path.dirname(sys.argv[0]), "primer_pos_from_seq.sh"))
 CONF['COVERAGE_PLOT'] = os.path.abspath(
         os.path.join(os.path.dirname(sys.argv[0]), "coverage_plot.py"))
-CONF['MAPPING_SUCCESS'] = os.path.abspath(
-        os.path.join(os.path.dirname(sys.argv[0]), "mapping_success.sh"))
+#CONF['MAPPING_SUCCESS'] = os.path.abspath(
+#        os.path.join(os.path.dirname(sys.argv[0]), "mapping_success.sh"))
 CONF['PRIMER_POS_FROM_SEQ'] = os.path.abspath(
         os.path.join(os.path.dirname(sys.argv[0]), "primer_pos_from_seq.sh"))
-CONF['MARK_PRIMER'] = os.path.abspath(
-        os.path.join(os.path.dirname(sys.argv[0]), "mark_primer.py"))
+#CONF['MARK_PRIMER'] = os.path.abspath(
+#        os.path.join(os.path.dirname(sys.argv[0]), "mark_primer.py"))
 CONF['PRIMER_POS_TO_BED'] = os.path.abspath(
         os.path.join(os.path.dirname(sys.argv[0]), "primer_pos_to_bed.py"))
+CONF['LOFREQ'] = "/mnt/software/stow/lofreq_star-2.1.2/bin/lofreq"
+CONF['BAMLEFTALIGN'] = "/mnt/software/stow/freebayes-1.0.1/bin/bamleftalign"
+CONF['SIMPLE_CONTIG_JOINER'] = "/mnt/software/stow/simple-contig-joiner-0.2/bin/simple_contig_joiner.py"
+CONF['PRIMER_LEN'] = 25
+
 # settings
 CONF['DEBUG'] = False
 # written dynamically
 # CONF['REFFA']
 # CONF['SAMPLENAME']
 # CONF['SAMPLES']
+# config[PRIMER_FILE]
 
 
 def main():
@@ -77,7 +88,7 @@ def main():
     """
 
     for f in CONF.keys():
-        if f in ['DEBUG']:
+        if f in ['DEBUG', 'PRIMER_LEN']:
             continue
         if not os.path.exists(CONF[f]):
             LOG.fatal("Missing file: {}".format(CONF[f]))
@@ -94,6 +105,8 @@ def main():
                         help='Output directory (may not exist, unless using --continue)')
     parser.add_argument('-r', "--reffa", required=True,
                         help='Reference genome')
+    parser.add_argument('-p', "--primers", required=True,
+                        help='Fasta file containing primers')
     parser.add_argument('-n', "--name", required=True,
                         help='Sample name (used as name for assembled genome)')
     default = 8
@@ -117,8 +130,11 @@ def main():
         LOG.fatal("Output directory must not exist: {}".format(args.outdir))
         sys.exit(1)
 
-    assert os.path.exists(args.reffa)
-
+    for f in [args.reffa, args.primers]:
+        if not os.path.exists(f):
+            LOG.fatal("Missing input file {}".format(f))
+            sys.exit(1)
+            
     if args.fq1 == args.fq2:
         LOG.fatal("Paired-End FastQ files have identical names")
         sys.exit(1)
@@ -137,7 +153,8 @@ def main():
                 LOG.fatal("Non-gzipped FastQ files not supported")
                 sys.exit(1)
 
-    os.mkdir(args.outdir)
+    # create outdir and logs
+    os.makedirs(os.path.join(args.outdir, LOG_REL_DIR))
 
     samples = []
     fqs1 = [os.path.abspath(f) for f in args.fq1]
@@ -156,6 +173,7 @@ def main():
     conf['SAMPLES'] = samples
     conf['REFFA'] = os.path.abspath(args.reffa)
     conf['SAMPLENAME'] = args.name.replace(" ", "_")
+    conf['PRIMER_FILE'] = os.path.abspath(args.primers)# FIXME copy?
 
     with open(config_file, 'w') as fh:
         json.dump(conf, fh, indent=4)
@@ -166,17 +184,21 @@ def main():
     snakemake_cluster_wrapper = os.path.join(args.outdir, SNAKEMAKE_CLUSTER_WRAPPER)
     mail_option = "-m bes -M {}@gis.a-star.edu.sg".format(getpass.getuser())
     with open(snakemake_cluster_wrapper, 'w') as fh:
-        fh.write('# snakemake requires python3\n')
+        fh.write('export PATH=/mnt/software/unstowable/anaconda/bin/:$PATH\n')
+        fh.write('# snakemake:\n')
+        # py3k env defined in /mnt/software/unstowable/anaconda and includes snakemake
         fh.write('source activate py3k;\n')
         fh.write('cd {};\n'.format(os.path.abspath(args.outdir)))
         fh.write('# qsub for snakemake itself\n')
         fh.write('qsub="qsub -pe OpenMP 1 -l mem_free=1G -l h_rt=48:00:00 {} -j y -V -b y -cwd";\n'.format(mail_option))
         fh.write('# -j in cluster mode is the maximum number of spawned jobs\n')
-        fh.write('$qsub -N snakemake -o snakemake.qsub.log')
+        fh.write('$qsub -N vipr2.{} -o {}/snakemake.qsub.log'.format(shlex.quote(args.name), LOG_REL_DIR))
         qsub_per_task = "qsub -pe OpenMP {threads} -l mem_free=8G -l h_rt=24:00:00 -j y -V -b y -cwd"
+        # FIXME max runtime and mem should be defined per target in SNAKEMAKE_FILE
+        qsub_per_task += " -e {} -o {}".format(LOG_REL_DIR, LOG_REL_DIR)
+        
         fh.write(' \'snakemake -j 8 -c "{}" -s {} --configfile {}\';\n'.format(
                qsub_per_task, SNAKEMAKE_FILE, CONFIG_FILE))
-        # FIXME max runtime and mem should be defined per target in SNAKEMAKE_FILE
 
     cmd = ['bash', snakemake_cluster_wrapper]
     if args.no_run:

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 """Create a coverage plot from a BAM (or RazerS) file
 """
 

@@ -1,14 +1,15 @@
-import shutil
 from snakemake.utils import report
 
-# simulate a bash login shell, see https://bitbucket.org/johanneskoester/snakemake/wiki/FAQ
 shell.executable("/bin/bash")
 # "unofficial bash strict mode" http://www.redsymbol.net/articles/unofficial-bash-strict-mode/
-#shell.prefix("source ~/.bashrc; set -euo pipefail;")
 shell.prefix("set -euo pipefail;")
 
 
 from itertools import groupby
+
+
+RESULT_DIR = "results"
+LOG_DIR = "logs"
 
 def fasta_iter(fasta_name):
     """
@@ -28,15 +29,13 @@ def fasta_iter(fasta_name):
         yield header, seq
 
 
-
 rule final:
-	input: "assembly_mapping.bam"
+	input: os.path.join(RESULT_DIR, "assembly.indelprep.vcf.gz"),
+		   os.path.join(RESULT_DIR, "assembly.indelprep.maprate.txt"),
+		   os.path.join(RESULT_DIR, "assembly.indelprep.covplot.pdf"),
+		   os.path.join(RESULT_DIR, "report.html")
 	message: 'This is the end. My only friend, the end'
-	output: 'COMPLETE'
-	shell:  'touch {output}'
 
-# trick is that SAMPLES was sorted in wrapper and can there safely be
-# concatenated here. FIXME could we do the same here?
 
 # famas will concatenate and write stats required for downsamling
 rule concat_fastq:
@@ -44,10 +43,11 @@ rule concat_fastq:
 			fqs2=expand('{sample}R2.fastq.gz', sample=config['SAMPLES'])
     # FIXME make temp?
 	output: fq1='R1.fastq.gz', fq2='R2.fastq.gz'
-	log: "concat_fastq.log"
+	log: os.path.join(LOG_DIR, "concat_fastq.log")# needed for reading length and number of seqs later
 	message: "Concatenating FastQ files"
 	benchmark: 'benchmark/concat_fastq.json'
 	shell:  '{config[FAMAS]} -i <(zcat {input.fqs1}) -j <(zcat {input.fqs2}) -o {output.fq1} -p {output.fq2} 2>{log}'
+
 
 rule downsample:
 	input: fq1=rules.concat_fastq.output.fq1,
@@ -55,15 +55,15 @@ rule downsample:
 		   reffa=config['REFFA']
 	params: coverage='1000'
 	benchmark: 'benchmark/downsample.json'
-	log: 'downsample.log'
+	log: os.path.join(LOG_DIR, 'downsample.log')
 	message: "Downsampling"
-    # FIXME could be made temp
+    # FIXME make temp?
 	output: fq1='R1_1kcov.fastq.gz',
 			fq2='R2_1kcov.fastq.gz'
 	run:
 		import sys
 		with open(rules.concat_fastq.log[0]) as fh:
-			# NOTE: assuming PE
+			#NOTE: assuming PE
 			l = next(fh).strip()
 			assert ' pairs in' in l
 			l = next(fh).strip()
@@ -73,7 +73,7 @@ rule downsample:
 			assert 'length' in l
 			avg_len = float(l.split()[-1])
 		ref_seq = dict((x[0].split()[0], x[1])
-			for x in fasta_iter(input.reffa))
+				for x in fasta_iter(input.reffa))
 		assert len(ref_seq) == 1, ("Only one reference sequence supported")
 		ref_seq_len = len(list(ref_seq.values())[0])
 		#sys.stderr.write("num_pairs_out={} avg_len={} ref_seq_len={}\n".format(num_pairs_out, avg_len, ref_seq_len))
@@ -81,33 +81,29 @@ rule downsample:
 		sample_every = int(cov / float(params.coverage))
 		shell("{config[FAMAS]} --no-filter -i {input.fq1} -j {input.fq2} -o {output.fq1} -p {output.fq2} -s {sample_every} 2>{log}")
 
+
 rule assemble:
 	input: fq1=rules.downsample.output.fq1, fq2=rules.downsample.output.fq2
-	output: contigs='assembly/contigs.fasta'
+	output: contigs=os.path.join(RESULT_DIR, 'assembly', 'contigs.fasta')
+	params:	outdir=os.path.join(RESULT_DIR, 'assembly')
 	threads: 8
-	log: 'assemble.log'
-	benchmark: 'benchmark/assemble.json'
+	#log: 'assemble.log'
+	benchmark: 'benchmark/assembly.json'
 	shell:	"""
-		#export MODULEPATH=""
-		#module use /mnt/software/modulefiles
-		#module load KMC smalt mummer samtools/0.0.19 python/2.7
-		#export CONDA_OLD_PS1="" PS1="" 
-		export PATH=/mnt/software/stow/KMC-2.2/bin/:/mnt/software/stow/smalt-0.7.6/bin/:/mnt/software/stow/samtools-0.1.19/:/mnt/software/unstowable/anaconda/bin/:$PATH
-		source activate iva
-		test -d ./assembly && rm -rf ./assembly
-		iva -f {input.fq1} -r {input.fq2} -t {threads} ./assembly
-		"""
+			{config[IVA]} {input.fq1} {input.fq2} {params.outdir} {threads}
+			"""
 
 rule join_contigs:
 	input: contigs=rules.assemble.output.contigs, reffa=config['REFFA']
-	output: assembly='assembly/assembly.fa'
+	output: assembly=os.path.join(RESULT_DIR, 'assembly', 'assembly.fa')
 	message: 'Joining contigs'
 	params: samplename=config['SAMPLENAME'],
-	log: 'join_contigs.log'
+	#log: 'join_contigs.log'
 	benchmark: 'benchmark/join_contigs.json'
 	shell: """
-		simple_contig_joiner.py -c {input.contigs} -r {input.reffa} -o - | sed -e 's,^>joined,>{params.samplename}-assembly,' > {output}
+		{config[SIMPLE_CONTIG_JOINER]} -c {input.contigs} -r {input.reffa} -o - | sed -e 's,^>joined,>{params.samplename}-assembly,' > {output}
 		"""
+
 
 rule bam_index:
     input:
@@ -119,44 +115,141 @@ rule bam_index:
 
 
 rule map_to_assembly:
-	input: ref=rules.join_contigs.output.assembly, fq1=rules.concat_fastq.output.fq1, fq2=rules.concat_fastq.output.fq2
-	output: bam="assembly_mapping.bam"
-	message: 'Mapping reads against assembly'
-	#params:
+	input:
+		ref=rules.join_contigs.output.assembly,
+		fq1=rules.concat_fastq.output.fq1,
+		fq2=rules.concat_fastq.output.fq2
+	output:
+		bam=os.path.join(RESULT_DIR, "assembly.bam")
+	message:'Mapping reads against assembly'
 	threads: 8
-	log: 'map_to_assembly.log'
+	log: os.path.join(LOG_DIR, 'map_to_assembly.log')
 	benchmark: 'benchmark/map_to_assembly.json'
 	shell: """
 		{config[BWA]} index {input.ref};# FIXME should be generic external rule
-		#rgid=$(zcat {input.fq1} {input.fq2} | md5sum | cut -d " " -f1)
 		rgid=$(echo {input.fq1} {input.fq2} | md5sum | cut -d " " -f1)
 		rgpu=${{rgid}}.PU
 		{config[BWA]} mem -M -t {threads} {input.ref} {input.fq1} {input.fq2} -R "@RG\tID:${{rgid}}\tPL:illumina\tPU:${{rgpu}}\tSM:{config[SAMPLENAME]}" 2>{log} | \
 			{config[SAMTOOLS]} sort -@ {threads} - $(echo {output.bam} | sed -e 's,.bam$,,') 2>>{log}
 		"""
 
-"""
 
-# obsolete: bam2cons_iter.sh $(ILL_ENC_ARG) $(READS_ARG) -r $(INIT_REF) -t $(NUM_THREADS) --force -o .$@ > $@.log 2>&1
-
-primer_pos_from_seq.sh -p $(PRIMER_FILE) -r .$@ --force -o $(PRIMER_POS_CONS_FA) >> $@.log 2>&1
-# why? mask_primer.py --force -i .$@ -o $(CONS_FA_MASKED) -p $(PRIMER_POS_CONS_FA) >> $@.log 2>&1
-
-coverage_plot.py --force --log $(MAPPING_COVPLOT).txt -o $(MAPPING_COVPLOT) -b $(BWA_UNIQ_BAM)
-mapping_success.sh $(MAPPING_SUCCESS_PE_ARG) -f $(S1) -b $(BWA_UNIQ_BAM) > .$@
-
-primer_pos_from_seq.sh -p $(PRIMER_FILE) -r $(MAP_REF_FA) --force -o .$@ > $@.log 2>&1
-
-mark_primer.py --primer-len $(PRIMER_LEN) -i $(BWA_UNIQ_BAM)  -p $(PRIMER_POS) --force -o .$@ > $@.log 2>&1
-
-# obsolete: base_qual_calib_wrapper.sh -t $(NUM_THREADS) -i $(DUPS_MARKED_BAM) -r $(MAP_REF_FA) -o .$@  > $@.log 2>&1
-
-primer_pos_to_bed.py --force -i $(PRIMER_POS) -p $(PRIMER_LEN) -b $(RECAL_BAM) -o $(INCLUDE_BED) > $@.log 2>&1
-lofreq_snpcaller.py --force --bonf auto-ign-zero-cov -f $(MAP_REF_FA) -b $(RECAL_BAM) -o $(LOFREQ_RAW) -l $(INCLUDE_BED)  >> $@.log 2>&1
-lofreq_filter.py --force --strandbias-holmbonf --min-cov 10 -i $(LOFREQ_RAW) -o .$@ >> $@.log 2>&1
+rule coverage_plot:
+	input:
+		bam='{prefix}.bam'
+	output:
+		covplot='{prefix}.covplot.pdf',
+		covlog='{prefix}.covplot.txt'
+	shell:
+		"""
+		# for python2.7 with matplotlib
+		export PATH=/mnt/software/unstowable/anaconda/bin/:$PATH;
+		# for genomeCoverageBed
+		export PATH=/mnt/software/stow/bedtools2-2.25.0/bin/:$PATH;
+		{config[COVERAGE_PLOT]} --force --log {output.covlog} -o {output.covplot} -b {input.bam};
+		"""
 
 
-check ../../../viral/dengue/GA004-SR-R00075-ngc-replicates/CTTGTA-s-2/Makefile
-or
-../../../viral/dengue/GA004-SR-R00075-ngc-replicates/vipr-map-vs-ref//CTTGTA-s-2/Makefile
-"""
+# taken from sg10k
+rule samtools_fasta_index:
+    input:
+        "{prefix}.{suffix}"
+    output:
+        "{prefix}.{suffix,(fasta|fa)}.fai"
+    shell:
+        "samtools faidx {input};"
+
+
+# taken from sg10k
+rule map_rate:
+    input:
+        bam="{prefix}.idxstats.txt",
+    output:
+        "{prefix}.maprate.txt"
+    shell:
+        "cat {input} | awk '{{a+=$3; u+=$4}} END {{printf \"%.2f\\n\", a/(a+u)}}' > {output}"
+
+
+# taken from sg10k
+rule bam_idxstats:
+    input:
+        bam="{prefix}.bam",
+        bai="{prefix}.bam.bai"
+    output:
+        "{prefix}.idxstats.txt"
+    shell:
+        "{config[SAMTOOLS]} idxstats {input.bam} > {output};"
+
+
+rule determine_primer_pos:
+	input:
+		primer_fa=config['PRIMER_FILE'],
+		ref_fa=rules.join_contigs.output.assembly,
+		ref_fai=rules.join_contigs.output.assembly + ".fai"
+	output:	
+		primerspos=rules.join_contigs.output.assembly + '.cons.primers.pos',
+		primersexclbed=rules.join_contigs.output.assembly + '.cons.primers.excl.bed'
+	shell:
+	 	"""
+		export PATH=/mnt/software/unstowable/mummer-3.23/:$PATH;
+	    # I'd love to use some other tools e.g. EMBOSS' primersearch but they are all equally unuseable
+		{config[PRIMER_POS_FROM_SEQ]} -p {input.primer_fa} -r {input.ref_fa} --force -o {output.primerspos};
+		seqname=$(cat {input.ref_fai} | cut -f 1)
+		seqlen=$(cat {input.ref_fai} | cut -f 2)
+		{config[PRIMER_POS_TO_BED]} --force -i {output.primerspos} --seqname $seqname --seqlen $seqlen -p {config[PRIMER_LEN]} -o {output.primersexclbed};
+		"""
+
+
+rule indel_calling_prep:
+	"""NOTE: could use lofreq viterbi instead of bamleftalign: that would fix alignment problems and do leftalignment (requires sorting), but multithreading option is missing	
+	"""
+	input:
+		bam="{prefix}.bam",
+		ref_fa=rules.join_contigs.output.assembly
+	output:
+		bam="{prefix}.indelprep.bam"
+	shell:
+		"{config[LOFREQ]} indelqual --dindel -f {input.ref_fa} -o - {input.bam} | {config[BAMLEFTALIGN]} -c -f {input.ref_fa} > {output.bam}"
+
+
+rule call_variants:
+	input:
+		nonprimer_regions=rules.determine_primer_pos.output.primersexclbed,
+		bam='{prefix}.indelprep.bam',
+		bai='{prefix}.indelprep.bam.bai',
+		reffa=rules.join_contigs.output.assembly,
+		reffa_fai=rules.join_contigs.output.assembly + ".fai"
+	threads:
+		8
+	output:
+		vcf='{prefix}.indelprep.vcf.gz'
+	shell:
+		"""export PATH=/mnt/software/bin/:$PATH
+		{config[LOFREQ]} call-parallel --pp-threads {threads} -f {input.reffa} -l {input.nonprimer_regions} --call-indels -o {output.vcf} {input.bam}
+		"""
+
+rule report:
+	# ugly. rules.call_variants.output.vcf doesnt work (can't find 'sample')
+	input:  vcf=os.path.join(RESULT_DIR, 'assembly.indelprep.vcf.gz'),
+			reffa=rules.join_contigs.output.assembly
+	output: html=os.path.join(RESULT_DIR, "report.html")
+	run:    report("""
+          ===================
+          ViPR2 Report
+          ===================
+
+		  This is a (hastily written) successor of the Viral Pipeline Runner (ViPR; see https://github.com/CSB5/vipr)
+
+		  It will assemble your (downsampled) viral amplicon sequencing reads using 
+          IVA (http://www.ncbi.nlm.nih.gov/pubmed/25725497). Gaps are filled
+          with the provided reference sequence. Reads are mapped against this
+          assembly with BWA-MEM (http://arxiv.org/abs/1303.3997). Low=frequency
+		  SNVs and Indels are then called (ignoring determined primer positions) 
+          with LoFreq (http://www.ncbi.nlm.nih.gov/pubmed/23066108).
+  
+          The main output files are the assembled sequence: {input.reffa}
+          and the variant file: {input.vcf}.
+
+          See conf.json in the main directory for used programs and settings.
+          """, output.html, metadata="Andreas WILM", **input)
+
