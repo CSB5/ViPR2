@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""FIXME:add-doc
+"""Successor of the Viral Pipeline Runner (ViPR; see https://github.com/CSB5/vipr)
 
+Assembles your viral amplicons sequences, maps reads and calls low frequency variants
 """
 
 import os
@@ -72,7 +73,11 @@ CONF['PRIMER_POS_TO_BED'] = os.path.abspath(
 CONF['LOFREQ'] = "/mnt/software/stow/lofreq_star-2.1.2/bin/lofreq"
 CONF['BAMLEFTALIGN'] = "/mnt/software/stow/freebayes-1.0.1/bin/bamleftalign"
 CONF['SIMPLE_CONTIG_JOINER'] = "/mnt/software/stow/simple-contig-joiner-0.2/bin/simple_contig_joiner.py"
+
 CONF['PRIMER_LEN'] = 25
+CONF['VCF2CSV'] = os.path.abspath(
+    os.path.join(os.path.dirname(sys.argv[0]), "vcf2csv.py"))
+CONF['MUMMERDIR'] = "/mnt/software/unstowable/mummer-3.23/"
 
 # settings
 CONF['DEBUG'] = False
@@ -98,20 +103,17 @@ def main():
 
     parser = argparse.ArgumentParser(description='VIPR: version 2')
     parser.add_argument('-1', "--fq1", required=True, nargs="+",
-                        help="Paired-end FastQ file #1 (gzip supported). Multiple (split) input files allowed")
+                        help="Paired-end FastQ file #1 (gzip only). Multiple (split) input files allowed")
     parser.add_argument('-2', "--fq2", required=True, nargs="+",
-                        help="Paired-end FastQ file #2 (gzip supported). Multiple (split) input files allowed")
+                        help="Paired-end FastQ file #2 (gzip only). Multiple (split) input files allowed")
     parser.add_argument('-o', "--outdir", required=True,
-                        help='Output directory (may not exist, unless using --continue)')
+                        help='Output directory (may not exist)')
     parser.add_argument('-r', "--reffa", required=True,
                         help='Reference genome')
     parser.add_argument('-p', "--primers", required=True,
                         help='Fasta file containing primers')
     parser.add_argument('-n', "--name", required=True,
-                        help='Sample name (used as name for assembled genome)')
-    default = 8
-    parser.add_argument('-c', '--num-cores', type=int, default=default,
-                        help='Number of cores to use (default = {})'.format(default))
+                        help='Sample name (used file and sequence naming)')
     parser.add_argument('--verbose', action="store_true",
                         help='Be verbose')
     parser.add_argument('--debug', action="store_true",
@@ -190,7 +192,7 @@ def main():
         fh.write('source activate py3k;\n')
         fh.write('cd {};\n'.format(os.path.abspath(args.outdir)))
         fh.write('# qsub for snakemake itself\n')
-        fh.write('qsub="qsub -pe OpenMP 1 -l mem_free=1G -l h_rt=48:00:00 {} -j y -V -b y -cwd";\n'.format(mail_option))
+        fh.write('qsub="qsub -pe OpenMP 1 -l mem_free=4G -l h_rt=48:00:00 {} -j y -V -b y -cwd";\n'.format(mail_option))
         fh.write('# -j in cluster mode is the maximum number of spawned jobs\n')
         fh.write('$qsub -N vipr2.{} -o {}/snakemake.qsub.log'.format(shlex.quote(args.name), LOG_REL_DIR))
         qsub_per_task = "qsub -pe OpenMP {threads} -l mem_free=8G -l h_rt=24:00:00 -j y -V -b y -cwd"

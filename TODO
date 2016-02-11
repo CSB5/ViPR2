@@ -1,10 +1,13 @@
-** Prio
-- Fix report
+- Change filename to --name
+- Single end support
+- Fix report: describe all output files
 - Testing:
   - simulated testcase: against correct and wrong reference
   - clonal testcase: against correct and wrong reference
-- Add README.md and upload to github as GERMS_ViPR2
-        
-** Later
-- print primer positions in coverage plot
-- allow mapping against fixed reference
+- Simulteanous mapping and calling against fixed reference
+- Add haplotyper
+- Add hotspot script (and coldspot for sake of completeness)
+- Plots: add primer positions
+- Plots: print variants
+- Add Garrett's syn/nonsyn script
+

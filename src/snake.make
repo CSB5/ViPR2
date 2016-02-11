@@ -9,7 +9,13 @@ from itertools import groupby
 
 
 RESULT_DIR = "results"
+RESULT_DIR_REF = os.path.join(RESULT_DIR, "reference-based")
+RESULT_DIR_ASSEMBLY = os.path.join(RESULT_DIR, "assembly-based")
 LOG_DIR = "logs"
+
+
+localrules: vcf2csv, map_rate
+
 
 def fasta_iter(fasta_name):
     """
@@ -30,10 +36,16 @@ def fasta_iter(fasta_name):
 
 
 rule final:
-	input: os.path.join(RESULT_DIR, "assembly.indelprep.vcf.gz"),
-		   os.path.join(RESULT_DIR, "assembly.indelprep.maprate.txt"),
-		   os.path.join(RESULT_DIR, "assembly.indelprep.covplot.pdf"),
-		   os.path.join(RESULT_DIR, "report.html")
+	input:
+		os.path.join(RESULT_DIR_ASSEMBLY, "{}.indelprep.vcf.gz".format(config['SAMPLENAME'])),
+		os.path.join(RESULT_DIR_ASSEMBLY, "{}.indelprep.csv".format(config['SAMPLENAME'])),
+		os.path.join(RESULT_DIR_ASSEMBLY, "{}.indelprep.maprate.txt".format(config['SAMPLENAME'])),
+		os.path.join(RESULT_DIR_ASSEMBLY, "{}.indelprep.covplot.pdf".format(config['SAMPLENAME'])),
+		os.path.join(RESULT_DIR_REF, "{}.indelprep.vcf.gz".format(config['SAMPLENAME'])),
+		os.path.join(RESULT_DIR_REF, "{}.indelprep.csv".format(config['SAMPLENAME'])),
+		os.path.join(RESULT_DIR_REF, "{}.indelprep.maprate.txt".format(config['SAMPLENAME'])),
+		os.path.join(RESULT_DIR_REF, "{}.indelprep.covplot.pdf".format(config['SAMPLENAME'])),
+		os.path.join(RESULT_DIR, "report.html")
 	message: 'This is the end. My only friend, the end'
 
 
@@ -41,8 +53,7 @@ rule final:
 rule concat_fastq:
 	input:  fqs1=expand('{sample}R1.fastq.gz', sample=config['SAMPLES']),
 			fqs2=expand('{sample}R2.fastq.gz', sample=config['SAMPLES'])
-    # FIXME make temp?
-	output: fq1='R1.fastq.gz', fq2='R2.fastq.gz'
+	output: fq1=temp('R1.fastq.gz'), fq2=temp('R2.fastq.gz')
 	log: os.path.join(LOG_DIR, "concat_fastq.log")# needed for reading length and number of seqs later
 	message: "Concatenating FastQ files"
 	benchmark: 'benchmark/concat_fastq.json'
@@ -57,9 +68,8 @@ rule downsample:
 	benchmark: 'benchmark/downsample.json'
 	log: os.path.join(LOG_DIR, 'downsample.log')
 	message: "Downsampling"
-    # FIXME make temp?
-	output: fq1='R1_1kcov.fastq.gz',
-			fq2='R2_1kcov.fastq.gz'
+	output: fq1=temp('R1_1kcov.fastq.gz'),
+			fq2=temp('R2_1kcov.fastq.gz')
 	run:
 		import sys
 		with open(rules.concat_fastq.log[0]) as fh:
@@ -84,10 +94,9 @@ rule downsample:
 
 rule assemble:
 	input: fq1=rules.downsample.output.fq1, fq2=rules.downsample.output.fq2
-	output: contigs=os.path.join(RESULT_DIR, 'assembly', 'contigs.fasta')
-	params:	outdir=os.path.join(RESULT_DIR, 'assembly')
+	output: contigs=os.path.join(RESULT_DIR_ASSEMBLY, 'assembly', 'contigs.fasta')
+	params:	outdir=os.path.join(RESULT_DIR_ASSEMBLY, 'assembly')
 	threads: 8
-	#log: 'assemble.log'
 	benchmark: 'benchmark/assembly.json'
 	shell:	"""
 			{config[IVA]} {input.fq1} {input.fq2} {params.outdir} {threads}
@@ -95,12 +104,12 @@ rule assemble:
 
 rule join_contigs:
 	input: contigs=rules.assemble.output.contigs, reffa=config['REFFA']
-	output: assembly=os.path.join(RESULT_DIR, 'assembly', 'assembly.fa')
+	output: assembly=os.path.join(RESULT_DIR_ASSEMBLY, 'assembly', '{}-assembly.fa'.format(config['SAMPLENAME']))
 	message: 'Joining contigs'
-	params: samplename=config['SAMPLENAME'],
-	#log: 'join_contigs.log'
+	params: samplename=config['SAMPLENAME']
 	benchmark: 'benchmark/join_contigs.json'
 	shell: """
+		export PATH={config[MUMMERDIR]}:$PATH;
 		{config[SIMPLE_CONTIG_JOINER]} -c {input.contigs} -r {input.reffa} -o - | sed -e 's,^>joined,>{params.samplename}-assembly,' > {output}
 		"""
 
@@ -120,7 +129,7 @@ rule map_to_assembly:
 		fq1=rules.concat_fastq.output.fq1,
 		fq2=rules.concat_fastq.output.fq2
 	output:
-		bam=os.path.join(RESULT_DIR, "assembly.bam")
+		bam=temp(os.path.join(RESULT_DIR_ASSEMBLY, "{}.bam".format(config['SAMPLENAME'])))
 	message:'Mapping reads against assembly'
 	threads: 8
 	log: os.path.join(LOG_DIR, 'map_to_assembly.log')
@@ -133,6 +142,25 @@ rule map_to_assembly:
 			{config[SAMTOOLS]} sort -@ {threads} - $(echo {output.bam} | sed -e 's,.bam$,,') 2>>{log}
 		"""
 
+
+rule map_to_reference:
+	input:
+		ref=config['REFFA'],
+		fq1=rules.concat_fastq.output.fq1,
+		fq2=rules.concat_fastq.output.fq2
+	output:
+		bam=temp(os.path.join(RESULT_DIR_REF, "{}.bam".format(config['SAMPLENAME'])))
+	message:'Mapping reads against reference'
+	threads: 8
+	log: os.path.join(LOG_DIR, 'map_to_reference.log')
+	benchmark: 'benchmark/map_to_reference.json'
+	shell: """
+		{config[BWA]} index {input.ref};# FIXME should be generic external rule
+		rgid=$(echo {input.fq1} {input.fq2} | md5sum | cut -d " " -f1)
+		rgpu=${{rgid}}.PU
+		{config[BWA]} mem -M -t {threads} {input.ref} {input.fq1} {input.fq2} -R "@RG\tID:${{rgid}}\tPL:illumina\tPU:${{rgpu}}\tSM:{config[SAMPLENAME]}" 2>{log} | \
+			{config[SAMTOOLS]} sort -@ {threads} - $(echo {output.bam} | sed -e 's,.bam$,,') 2>>{log}
+		"""
 
 rule coverage_plot:
 	input:
@@ -157,7 +185,7 @@ rule samtools_fasta_index:
     output:
         "{prefix}.{suffix,(fasta|fa)}.fai"
     shell:
-        "samtools faidx {input};"
+        "{config[SAMTOOLS]} faidx {input};"
 
 
 # taken from sg10k
@@ -191,7 +219,7 @@ rule determine_primer_pos:
 		primersexclbed=rules.join_contigs.output.assembly + '.cons.primers.excl.bed'
 	shell:
 	 	"""
-		export PATH=/mnt/software/unstowable/mummer-3.23/:$PATH;
+		export PATH={config[MUMMERDIR]}:$PATH;
 	    # I'd love to use some other tools e.g. EMBOSS' primersearch but they are all equally unuseable
 		{config[PRIMER_POS_FROM_SEQ]} -p {input.primer_fa} -r {input.ref_fa} --force -o {output.primerspos};
 		seqname=$(cat {input.ref_fai} | cut -f 1)
@@ -228,9 +256,22 @@ rule call_variants:
 		{config[LOFREQ]} call-parallel --pp-threads {threads} -f {input.reffa} -l {input.nonprimer_regions} --call-indels -o {output.vcf} {input.bam}
 		"""
 
+
+rule vcf2csv:
+	input:
+		"{prefix}.vcf.gz"
+	output:
+		"{prefix}.csv"
+	shell:	
+		"""# for python2.7 with pyvcf
+		export PATH=/mnt/software/unstowable/anaconda/bin/:$PATH;
+		{config[VCF2CSV]} {input} {output}
+		"""
+
+
 rule report:
 	# ugly. rules.call_variants.output.vcf doesnt work (can't find 'sample')
-	input:  vcf=os.path.join(RESULT_DIR, 'assembly.indelprep.vcf.gz'),
+	input:  vcf=os.path.join(RESULT_DIR_ASSEMBLY, '{}.indelprep.vcf.gz'.format(config['SAMPLENAME'])),
 			reffa=rules.join_contigs.output.assembly
 	output: html=os.path.join(RESULT_DIR, "report.html")
 	run:    report("""
