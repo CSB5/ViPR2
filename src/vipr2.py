@@ -55,7 +55,7 @@ CONF = dict()
 # programs
 CONF['FAMAS'] = "/mnt/software/stow/famas-0.0.11/bin/famas"
 CONF['BWA'] = '/mnt/software/stow/bwa-0.7.12/bin/bwa'
-CONF['SAMTOOLS'] = '/mnt/software/stow/samtools-1.1/bin/samtools'
+CONF['SAMTOOLS'] = '/mnt/software/stow/samtools-1.3/bin/samtools'
 CONF['IVA'] = os.path.abspath(
         os.path.join(os.path.dirname(sys.argv[0]), "iva.sh"))
 CONF['PRIMER_POS_FROM_SEQ'] = os.path.abspath(
