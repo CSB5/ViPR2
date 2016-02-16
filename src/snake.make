@@ -174,6 +174,8 @@ rule coverage_plot:
         export PATH=/mnt/software/unstowable/anaconda/bin/:$PATH;
         # for genomeCoverageBed
         export PATH=/mnt/software/stow/bedtools2-2.25.0/bin/:$PATH;
+        # samtools
+		export PATH=$(dirname {config[SAMTOOLS]}):$PATH;
         {config[COVERAGE_PLOT]} --force --log {output.covlog} -o {output.covplot} -b {input.bam};
         """
 
