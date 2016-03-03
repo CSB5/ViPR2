@@ -66,8 +66,8 @@ CONF['COVERAGE_PLOT'] = os.path.abspath(
 #        os.path.join(os.path.dirname(sys.argv[0]), "mapping_success.sh"))
 CONF['PRIMER_POS_FROM_SEQ'] = os.path.abspath(
         os.path.join(os.path.dirname(sys.argv[0]), "primer_pos_from_seq.sh"))
-#CONF['MARK_PRIMER'] = os.path.abspath(
-#        os.path.join(os.path.dirname(sys.argv[0]), "mark_primer.py"))
+CONF['MARK_PRIMER'] = os.path.abspath(
+        os.path.join(os.path.dirname(sys.argv[0]), "mark_primer.py"))
 CONF['PRIMER_POS_TO_BED'] = os.path.abspath(
         os.path.join(os.path.dirname(sys.argv[0]), "primer_pos_to_bed.py"))
 CONF['LOFREQ'] = "/mnt/software/stow/lofreq_star-2.1.2/bin/lofreq"
@@ -190,7 +190,8 @@ def main():
         fh.write('# snakemake:\n')
         # py3k env defined in /mnt/software/unstowable/anaconda and includes snakemake
         fh.write('source activate py3k;\n')
-        fh.write('cd {};\n'.format(os.path.abspath(args.outdir)))
+        #fh.write('cd {};\n'.format(os.path.abspath(args.outdir)))
+        fh.write('cd $(dirname $0);\n'.format(os.path.abspath(args.outdir)))
         fh.write('# qsub for snakemake itself\n')
         fh.write('qsub="qsub -pe OpenMP 1 -l mem_free=4G -l h_rt=48:00:00 {} -j y -V -b y -cwd";\n'.format(mail_option))
         fh.write('# -j in cluster mode is the maximum number of spawned jobs\n')
@@ -199,7 +200,7 @@ def main():
         # FIXME max runtime and mem should be defined per target in SNAKEMAKE_FILE
         qsub_per_task += " -e {} -o {}".format(LOG_REL_DIR, LOG_REL_DIR)
         
-        fh.write(' \'snakemake -j 8 -c "{}" -s {} --configfile {}\';\n'.format(
+        fh.write(' \'snakemake -j 8 -c "{}" -s {} --configfile {} --printshellcmds\';\n'.format(
                qsub_per_task, SNAKEMAKE_FILE, CONFIG_FILE))
 
     cmd = ['bash', snakemake_cluster_wrapper]
