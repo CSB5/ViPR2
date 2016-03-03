@@ -32,6 +32,9 @@ import numpy
 # max sequence len
 MAX_LEN = 5e6
 
+# unmapped, secondary, not passing qc, supplementary
+DEF_SAM_MASK = 0x4 | 0x100 | 0x200 | 0x400 | 0x800
+    
 
 __author__ = "Andreas Wilm"
 __version__ = "0.1"
@@ -99,23 +102,13 @@ def genome_from_bam(fbam, fh_genome, samtools="samtools"):
 
 
 
-def parse_coverage_bam(fbam, genomecoveragebed="genomeCoverageBed"):
+def parse_coverage_bam(fbam, genomecoveragebed="genomeCoverageBed", samtools="samtools"):
     """
 
     Arguments:
     - `fbam`: file to read coverage from. Needs samtools and bedtools (genomeCoverageBed)
     - `genomecoveragebed`: path to genomeCoverageBed binary
     """
-
-    try:
-        cmd = [genomecoveragebed]
-        process = subprocess.Popen(cmd,
-                                   stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE)
-        (stdoutdata, stderrdata) =  process.communicate()
-    except OSError:
-        LOG.fatal("Can't run %s. Please make sure it's in your path" % cmd[0])
-        sys.exit(1)
 
     # forward and reverse coverage
     # int is essential; see note below
@@ -127,20 +120,25 @@ def parse_coverage_bam(fbam, genomecoveragebed="genomeCoverageBed"):
     genome_from_bam(fbam, file_genome)
     file_genome.close()
 
-    basic_cmd = "%s -ibam %s -g %s -d" % (
-        genomecoveragebed, fbam, file_genome.name)
+    # need to filter duplicates manually
+    # https://groups.google.com/forum/#!msg/bedtools-discuss/z6Q8YzVIb6I/kFCkG-jB1BEJ
+    samtools_cmd = [samtools, 'view', '-u', '-F', str(DEF_SAM_MASK), fbam]
+    genomcov_cmd_base = [genomecoveragebed, '-g', file_genome.name, '-d', '-ibam', '-']
 
     for strand in ["+", "-"]:
-        cmd = "%s -strand %s" % (basic_cmd, strand)
-        process = subprocess.Popen(cmd.split(),
-                                   stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE)
-        (stdoutdata, stderrdata) =  process.communicate()
-        retcode = process.returncode
+        genomcov_cmd = genomcov_cmd_base + ['-strand', strand]
+        p1 = subprocess.Popen(samtools_cmd,
+                              stdout=subprocess.PIPE)
+        p2 = subprocess.Popen(genomcov_cmd,
+                              stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # See 17.1.4.2. Replacing shell pipeline: https://docs.python.org/2/library/subprocess.html
+        p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
+        (stdoutdata, stderrdata) =  p2.communicate()
+        retcode = p2.returncode
         if retcode != 0:
             raise OSError("Called command exited with error code '%d'." \
-                          " Command was '%s'. stderr was: '%s'" % (
-                              retcode, cmd, stderrdata))
+                          " Command was '{} | {}'. stderr was: '%s'" % (
+                              retcode, samtools_cmd, genomcov_cmd, stderrdata))
         for line in str.splitlines(stderrdata):
             if len(line.strip()) == 0:
                 continue
@@ -148,7 +146,7 @@ def parse_coverage_bam(fbam, genomecoveragebed="genomeCoverageBed"):
         for line in str.splitlines(stdoutdata):
             if len(line) == 0:
                 continue
-            (chrom, pos, cov) = line.split('\t')
+            (_chrom, pos, cov) = line.split('\t')
             pos = int(float(pos))-1 # we use zero offset
             cov = int(float(cov))
 
