@@ -1,4 +1,4 @@
 *~
 out/
 *.pyc
-
+*_flymake.py
