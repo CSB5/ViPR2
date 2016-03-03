@@ -37,13 +37,15 @@ def fasta_iter(fasta_name):
 
 rule final:
     input:
-        os.path.join(RESULT_DIR_ASSEMBLY, "{}.indelprep.vcf.gz".format(config['SAMPLENAME'])),
-        os.path.join(RESULT_DIR_ASSEMBLY, "{}.indelprep.csv".format(config['SAMPLENAME'])),
-        os.path.join(RESULT_DIR_ASSEMBLY, "{}.indelprep.maprate.txt".format(config['SAMPLENAME'])),
+        os.path.join(RESULT_DIR_ASSEMBLY, "{}.mdups.indelprep.vcf.gz".format(config['SAMPLENAME'])),
+        os.path.join(RESULT_DIR_ASSEMBLY, "{}.mdups.indelprep.csv".format(config['SAMPLENAME'])),
+        os.path.join(RESULT_DIR_ASSEMBLY, "{}.mdups.indelprep.maprate.txt".format(config['SAMPLENAME'])),
+        os.path.join(RESULT_DIR_ASSEMBLY, "{}.mdups.indelprep.covplot.pdf".format(config['SAMPLENAME'])),
         os.path.join(RESULT_DIR_ASSEMBLY, "{}.indelprep.covplot.pdf".format(config['SAMPLENAME'])),
-        os.path.join(RESULT_DIR_REFFA, "{}.indelprep.vcf.gz".format(config['SAMPLENAME'])),
-        os.path.join(RESULT_DIR_REFFA, "{}.indelprep.csv".format(config['SAMPLENAME'])),
-        os.path.join(RESULT_DIR_REFFA, "{}.indelprep.maprate.txt".format(config['SAMPLENAME'])),
+        os.path.join(RESULT_DIR_REFFA, "{}.mdups.indelprep.vcf.gz".format(config['SAMPLENAME'])),
+        os.path.join(RESULT_DIR_REFFA, "{}.mdups.indelprep.csv".format(config['SAMPLENAME'])),
+        os.path.join(RESULT_DIR_REFFA, "{}.mdups.indelprep.maprate.txt".format(config['SAMPLENAME'])),
+        os.path.join(RESULT_DIR_REFFA, "{}.mdups.indelprep.covplot.pdf".format(config['SAMPLENAME'])),
         os.path.join(RESULT_DIR_REFFA, "{}.indelprep.covplot.pdf".format(config['SAMPLENAME'])),
         os.path.join(RESULT_DIR, "report.html")
     message: 'This is the end. My only friend, the end'
@@ -170,12 +172,13 @@ rule coverage_plot:
         "Creating coverage plot"
     shell:
         """
+	    # FIXME too much harcoded stuff
         # for python2.7 with matplotlib
         export PATH=/mnt/software/unstowable/anaconda/bin/:$PATH;
         # for genomeCoverageBed
         export PATH=/mnt/software/stow/bedtools2-2.25.0/bin/:$PATH;
         # samtools
-		export PATH=$(dirname {config[SAMTOOLS]}):$PATH;
+        export PATH=$(dirname {config[SAMTOOLS]}):$PATH;
         {config[COVERAGE_PLOT]} --force --log {output.covlog} -o {output.covplot} -b {input.bam};
         """
 
@@ -191,27 +194,25 @@ rule samtools_fasta_index:
         "{config[SAMTOOLS]} faidx {input};"
 
 
-# taken from sg10k
 rule map_rate:
     input:
-        bam="{prefix}.idxstats.txt",
+        bam="{prefix}.flagstats.txt",
     output:
         "{prefix}.maprate.txt"
-    #message: 'Computing mapping rate for {prefix}'
     shell:
-        "cat {input} | awk '{{a+=$3; u+=$4}} END {{printf \"%.2f\\n\", a/(a+u)}}' > {output}"
+        # NOTE this works for PE only
+        "grep 'properly paired' {input} | cut -f 6 -d ' ' | tr -d '(' > {output}"
 
 
-# taken from sg10k
-rule bam_idxstats:
+rule bam_flagstats:
     input:
         bam="{prefix}.bam",
         bai="{prefix}.bam.bai"
     output:
-        "{prefix}.idxstats.txt"
-    message: "Computing BAM stats for {input.bam}"
+        "{prefix}.flagstats.txt"
+    message: "Computing flagstats for {input.bam}"
     shell:
-        "{config[SAMTOOLS]} idxstats {input.bam} > {output};"
+        "{config[SAMTOOLS]} flagstat {input.bam} > {output};"
 
 
 PRIMER_POS_CMD = """
@@ -249,6 +250,22 @@ rule determine_primer_pos_reffa:
         "Determining primer positions for {input.reffa}"
     shell:
         PRIMER_POS_CMD
+
+
+
+rule mark_dups:
+    """FIXME:add-doc
+    """
+    input:
+        bam="{prefix}.bam",
+        bai="{prefix}.bam.bai",
+        primer_pos=lambda wildcards: rules.determine_primer_pos_reffa.output.primerpos if RESULT_DIR_REFFA in wildcards.prefix else rules.determine_primer_pos_assembly.output.primerpos
+    output:
+        bam="{prefix}.mdups.bam"
+    message:
+        "Marking duplicates"
+    shell:
+        "{config[MARK_PRIMER]} -i {input.bam} -o {output.bam} -p {input.primer_pos}"
 
 
 rule indel_calling_prep:
@@ -301,14 +318,16 @@ rule vcf2csv:
 rule report:
     # ugly. rules.call_variants.output.vcf doesnt work (can't find 'sample')
     input: assembly_reffa=rules.join_contigs.output.assembly,
-           assembly_vcf=os.path.join(RESULT_DIR_ASSEMBLY, '{}.indelprep.vcf.gz'.format(config['SAMPLENAME'])),
-           assembly_csv=os.path.join(RESULT_DIR_ASSEMBLY, '{}.indelprep.csv'.format(config['SAMPLENAME'])),
-           assembly_covplot=os.path.join(RESULT_DIR_ASSEMBLY, "{}.indelprep.covplot.pdf".format(config['SAMPLENAME'])),
-           assembly_maprate=os.path.join(RESULT_DIR_ASSEMBLY, "{}.indelprep.maprate.txt".format(config['SAMPLENAME'])),
-           reference_vcf=os.path.join(RESULT_DIR_REFFA, '{}.indelprep.vcf.gz'.format(config['SAMPLENAME'])),
-           reference_csv=os.path.join(RESULT_DIR_REFFA, '{}.indelprep.csv'.format(config['SAMPLENAME'])),
-           reference_covplot=os.path.join(RESULT_DIR_REFFA, "{}.indelprep.covplot.pdf".format(config['SAMPLENAME'])),
-           reference_maprate=os.path.join(RESULT_DIR_REFFA, "{}.indelprep.maprate.txt".format(config['SAMPLENAME'])),
+           assembly_vcf=os.path.join(RESULT_DIR_ASSEMBLY, '{}.mdups.indelprep.vcf.gz'.format(config['SAMPLENAME'])),
+           assembly_csv=os.path.join(RESULT_DIR_ASSEMBLY, '{}.mdups.indelprep.csv'.format(config['SAMPLENAME'])),
+           assembly_covplot_wdups=os.path.join(RESULT_DIR_ASSEMBLY, "{}.indelprep.covplot.pdf".format(config['SAMPLENAME'])),
+           assembly_covplot=os.path.join(RESULT_DIR_ASSEMBLY, "{}.mdups.indelprep.covplot.pdf".format(config['SAMPLENAME'])),
+           assembly_maprate=os.path.join(RESULT_DIR_ASSEMBLY, "{}.mdups.indelprep.maprate.txt".format(config['SAMPLENAME'])),
+           reference_vcf=os.path.join(RESULT_DIR_REFFA, '{}.mdups.indelprep.vcf.gz'.format(config['SAMPLENAME'])),
+           reference_csv=os.path.join(RESULT_DIR_REFFA, '{}.mdups.indelprep.csv'.format(config['SAMPLENAME'])),
+           reference_covplot_wdups=os.path.join(RESULT_DIR_REFFA, "{}.indelprep.covplot.pdf".format(config['SAMPLENAME'])),
+           reference_covplot=os.path.join(RESULT_DIR_REFFA, "{}.mdups.indelprep.covplot.pdf".format(config['SAMPLENAME'])),
+           reference_maprate=os.path.join(RESULT_DIR_REFFA, "{}.mdups.indelprep.maprate.txt".format(config['SAMPLENAME'])),
     output: html=os.path.join(RESULT_DIR, "report.html")
     run: report("""
           ===================
@@ -327,10 +346,12 @@ rule report:
 
           - Assembled sequence: {input.assembly_reffa}
           - Variants wrt. assembly: {input.assembly_vcf} or for Excel import {input.assembly_csv}
+          - Coverage plot for assembly mapping before duplicate removal: {input.assembly_covplot_wdups}
           - Coverage plot for assembly mapping: {input.assembly_covplot}
           - Mapping success: {input.assembly_maprate}
 
           - Variants wrt. reference: {input.reference_vcf} or for Excel import {input.reference_csv}
+          - Coverage plot for reference mapping before duplicate removal: {input.reference_covplot_wdups}
           - Coverage plot for reference mapping: {input.reference_covplot}
           - Mapping success: {input.reference_maprate}
 
