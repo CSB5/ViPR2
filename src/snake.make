@@ -129,7 +129,11 @@ rule bam_index:
 
 # https://groups.google.com/forum/#!searchin/snakemake/lambda$20/snakemake/BidG8CEUW24/tsklilCYHJcJ
 MAP_CMD = """
-        {config[BWA]} index {input.reffa};# FIXME should be generic external rule
+        # FIXME should be generic external rule
+        # esp vipr runs will often run in parallel and use the same reference which can cause race conditions.
+        test -e {input.reffa}.sa || sleep $(expr $RANDOM % 60)
+        test -e {input.reffa}.sa || {config[BWA]} index {input.reffa};
+
         rgid=$(echo {input.fq1} {input.fq2} | md5sum | cut -d " " -f1)
         rgpu=${{rgid}}.PU
         {config[BWA]} mem -M -t {threads} {input.reffa} {input.fq1} {input.fq2} -R "@RG\\tID:${{rgid}}\\tPL:illumina\\tPU:${{rgpu}}\\tSM:{config[SAMPLENAME]}" | \
