@@ -13,9 +13,8 @@ import json
 import shutil
 import subprocess
 import getpass
-import shlex
 
-LOG_REL_DIR="logs"
+LOG_REL_DIR = "logs"
 
 
 try:
@@ -33,9 +32,9 @@ __license__ = "The MIT License (MIT)"
 
 
 # global logger
-LOG = logging.getLogger("")
+logger = logging.getLogger("")
 logging.basicConfig(level=logging.WARN,
-    format='%(levelname)s [%(asctime)s]: %(message)s')
+                    format='%(levelname)s [%(asctime)s]: %(message)s')
 
 
 # The wrapper script created here calling snakemake
@@ -57,19 +56,19 @@ CONF['FAMAS'] = "/mnt/software/stow/famas-0.0.11/bin/famas"
 CONF['BWA'] = '/mnt/software/stow/bwa-0.7.12/bin/bwa'
 CONF['SAMTOOLS'] = '/mnt/software/stow/samtools-1.3/bin/samtools'
 CONF['IVA'] = os.path.abspath(
-        os.path.join(os.path.dirname(sys.argv[0]), "iva.sh"))
+    os.path.join(os.path.dirname(sys.argv[0]), "iva.sh"))
 CONF['PRIMER_POS_FROM_SEQ'] = os.path.abspath(
-        os.path.join(os.path.dirname(sys.argv[0]), "primer_pos_from_seq.sh"))
+    os.path.join(os.path.dirname(sys.argv[0]), "primer_pos_from_seq.sh"))
 CONF['COVERAGE_PLOT'] = os.path.abspath(
-        os.path.join(os.path.dirname(sys.argv[0]), "coverage_plot.py"))
+    os.path.join(os.path.dirname(sys.argv[0]), "coverage_plot.py"))
 #CONF['MAPPING_SUCCESS'] = os.path.abspath(
 #        os.path.join(os.path.dirname(sys.argv[0]), "mapping_success.sh"))
 CONF['PRIMER_POS_FROM_SEQ'] = os.path.abspath(
-        os.path.join(os.path.dirname(sys.argv[0]), "primer_pos_from_seq.sh"))
+    os.path.join(os.path.dirname(sys.argv[0]), "primer_pos_from_seq.sh"))
 CONF['MARK_PRIMER'] = os.path.abspath(
-        os.path.join(os.path.dirname(sys.argv[0]), "mark_primer.py"))
+    os.path.join(os.path.dirname(sys.argv[0]), "mark_primer.py"))
 CONF['PRIMER_POS_TO_BED'] = os.path.abspath(
-        os.path.join(os.path.dirname(sys.argv[0]), "primer_pos_to_bed.py"))
+    os.path.join(os.path.dirname(sys.argv[0]), "primer_pos_to_bed.py"))
 CONF['LOFREQ'] = "/mnt/software/stow/lofreq_star-2.1.2/bin/lofreq"
 CONF['BAMLEFTALIGN'] = "/mnt/software/stow/freebayes-1.0.1/bin/bamleftalign"
 CONF['SIMPLE_CONTIG_JOINER'] = "/mnt/software/stow/simple-contig-joiner-0.2/bin/simple_contig_joiner.py"
@@ -96,7 +95,7 @@ def main():
         if f in ['DEBUG', 'PRIMER_LEN']:
             continue
         if not os.path.exists(CONF[f]):
-            LOG.fatal("Missing file: {}".format(CONF[f]))
+            logger.fatal("Missing file: %s", CONF[f])
             sys.exit(1)
     assert os.path.exists(SNAKEMAKE_TEMPLATE)
 
@@ -124,35 +123,35 @@ def main():
 
 
     if args.verbose:
-        LOG.setLevel(logging.INFO)
+        logger.setLevel(logging.INFO)
     if args.debug:
-        LOG.setLevel(logging.DEBUG)
+        logger.setLevel(logging.DEBUG)
 
     if os.path.exists(args.outdir):
-        LOG.fatal("Output directory must not exist: {}".format(args.outdir))
+        logger.fatal("Output directory must not exist: %s", args.outdir)
         sys.exit(1)
 
     for f in [args.reffa, args.primers]:
         if not os.path.exists(f):
-            LOG.fatal("Missing input file {}".format(f))
+            logger.fatal("Missing input file %s", f)
             sys.exit(1)
-            
+
     if args.fq1 == args.fq2:
-        LOG.fatal("Paired-End FastQ files have identical names")
+        logger.fatal("Paired-End FastQ files have identical names")
         sys.exit(1)
     for fq1, fq2 in zip_longest(args.fq1, args.fq2):
         # only i|zip_longest uses None if one is missing
         if fq1 is None or fq2 is None:
-            LOG.fatal("Unequal number of FastQ files")
+            logger.fatal("Unequal number of FastQ files")
             sys.exit(1)
         # enforce gzipped fastq
         # check they all exist
         for f in [fq1, fq2]:
             if not os.path.exists(f):
-                LOG.fatal("FastQ file {} does not exist".format(f))
+                logger.fatal("FastQ file %s does not exist", f)
                 sys.exit(1)
             elif not f.endswith(".gz"):
-                LOG.fatal("Non-gzipped FastQ files not supported")
+                logger.fatal("Non-gzipped FastQ files not supported")
                 sys.exit(1)
 
     # create outdir and logs
@@ -180,7 +179,7 @@ def main():
     with open(config_file, 'w') as fh:
         json.dump(conf, fh, indent=4)
 
-    shutil.copyfile(SNAKEMAKE_TEMPLATE, 
+    shutil.copyfile(SNAKEMAKE_TEMPLATE,
                     os.path.join(args.outdir, SNAKEMAKE_FILE))
 
     snakemake_cluster_wrapper = os.path.join(args.outdir, SNAKEMAKE_CLUSTER_WRAPPER)
@@ -195,13 +194,13 @@ def main():
         fh.write('# qsub for snakemake itself\n')
         fh.write('qsub="qsub -pe OpenMP 1 -l mem_free=4G -l h_rt=48:00:00 {} -j y -V -b y -cwd";\n'.format(mail_option))
         fh.write('# -j in cluster mode is the maximum number of spawned jobs\n')
-        fh.write('$qsub -N vipr2.{} -o {}/snakemake.qsub.log'.format(shlex.quote(args.name), LOG_REL_DIR))
+        fh.write('$qsub -N vipr2.{} -o {}/snakemake.qsub.log'.format(conf['SAMPLENAME'], LOG_REL_DIR))
         qsub_per_task = "qsub -pe OpenMP {threads} -l mem_free=8G -l h_rt=24:00:00 -j y -V -b y -cwd"
         # FIXME max runtime and mem should be defined per target in SNAKEMAKE_FILE
         qsub_per_task += " -e {} -o {}".format(LOG_REL_DIR, LOG_REL_DIR)
-        
+
         fh.write(' \'snakemake -j 8 -c "{}" -s {} --configfile {} --printshellcmds\';\n'.format(
-               qsub_per_task, SNAKEMAKE_FILE, CONFIG_FILE))
+            qsub_per_task, SNAKEMAKE_FILE, CONFIG_FILE))
 
     cmd = ['bash', snakemake_cluster_wrapper]
     if args.no_run:
@@ -210,8 +209,7 @@ def main():
     else:
         print("Running: {}".format(cmd))
         subprocess.check_output(cmd)
-                
+
 
 if __name__ == '__main__':
     main()
-
