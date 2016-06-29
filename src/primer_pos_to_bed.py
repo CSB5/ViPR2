@@ -170,7 +170,7 @@ def main():
         sys.exit(1)
 
     if not opts.seq_len or not opts.seq_name:
-        LOG.fatal("Missing sequence name or sequence length argument")
+        LOG.fatal("Missing sequence name or sequence length argument (or seq len 0)")
         sys.exit(1)
     seq_len = opts.seq_len
     seq_name = opts.seq_name

@@ -71,7 +71,7 @@ CONF['PRIMER_POS_TO_BED'] = os.path.abspath(
     os.path.join(os.path.dirname(sys.argv[0]), "primer_pos_to_bed.py"))
 CONF['LOFREQ'] = "/mnt/software/stow/lofreq_star-2.1.2/bin/lofreq"
 CONF['BAMLEFTALIGN'] = "/mnt/software/stow/freebayes-1.0.1/bin/bamleftalign"
-CONF['SIMPLE_CONTIG_JOINER'] = "/mnt/software/stow/simple-contig-joiner-0.2/bin/simple_contig_joiner.py"
+CONF['SIMPLE_CONTIG_JOINER'] = "/mnt/software/stow/simple-contig-joiner-0.3/bin/simple_contig_joiner.py"
 
 CONF['PRIMER_LEN'] = 25
 CONF['VCF2CSV'] = os.path.abspath(
