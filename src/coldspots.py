@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 """Determine mutational coldspots from pooled SNP files
 """
 
@@ -15,11 +15,13 @@ from optparse import OptionParser
 # /
 #from scipy.stats.distributions import binom
 from scipy.stats import binom_test
+
 from scipy.stats import binom
 
 #--- project specific imports
 #
-from lofreq import snp
+# James Casbon's pyvcf
+import vcf
 
 
 SIG_LEVEL = 0.05
@@ -32,9 +34,8 @@ SIG_LEVEL = 0.05
 __author__ = "Andreas Wilm"
 __version__ = "0.1"
 __email__ = "wilma@gis.a-star.edu.sg"
-__copyright__ = "2012, 2013 Genome Institute of Singapore"
+__copyright__ = "2012-2016 Genome Institute of Singapore"
 __license__ = "GPL2"
-__credits__ = [""]
 __status__ = "eternal alpha"
 
 
@@ -113,20 +114,21 @@ def find_coldspot_regions(pooled_snps, seq_len, min_reg_size, excl_pos):
     # otherwise math doesn't make sense
     snps_in_excl = []
     for s in pooled_snps:
-        assert s.pos < seq_len
-        if s.pos in excl_pos:
+        # pyvcf 1 based. convert here to old style 0 based to minimize downstream changes
+        assert s.POS-1 < seq_len
+        if s.POS-1 in excl_pos:
             snps_in_excl.append(s)
     if len(snps_in_excl):
-        LOG.warn("%d of %d snps were in excl_pos (pos: %s)" % (
-            len(snps_in_excl), len(pooled_snps), 
-            ','.join([str(s.pos+1) for s in snps_in_excl])))
- 
-    all_snp_pos = set([s.pos for s in pooled_snps if s.pos not in excl_pos])
-    
+        LOG.warn("%d of %d snps were in excl_pos (pos: %s)",
+                 len(snps_in_excl), len(pooled_snps),
+                 ','.join([str(s.POS) for s in snps_in_excl]))
+
+    all_snp_pos = set([s.POS-1 for s in pooled_snps if s.POS-1 not in excl_pos])
+
     # don't count twice (my conservative version)
     # snp_prob = len(all_snp_pos)/float(seq_len)
     # or
-    # count all (as told by NN): len([s.pos for s in pooled_snps if s.pos not in excl_pos])
+    # count all (as told by NN): len([s.POS-1 for s in pooled_snps if s.POS-1 not in excl_pos])
     snp_prob = len(all_snp_pos)/(float(seq_len)-len(excl_pos))
     # FIXME This ignores the fact that we can have 3 SNPs per pos.
     # Such cases will give probs>1 and the binom_test will fail
@@ -139,7 +141,7 @@ def find_coldspot_regions(pooled_snps, seq_len, min_reg_size, excl_pos):
     # stretch of SNP void regions. Those stops include excl_pos, which
     # only works because they are a range and can therefore never be a
     # coldspot on their own.
-    stop_pos = [p for p in excl_pos if p<seq_len]
+    stop_pos = [p for p in excl_pos if p < seq_len]
     stop_pos.extend(all_snp_pos)
     stop_pos = set(sorted(stop_pos))
     for cur_snp_pos in sorted(stop_pos):
@@ -179,8 +181,8 @@ def find_coldspot_regions(pooled_snps, seq_len, min_reg_size, excl_pos):
                 region_start, region_end, size, pvalue * bonf_fac, pvalue)
         else:
             LOG.info("non-significant coldspot region %d-%d (length %d):"
-                     " bonferroni corrected pvalue = %g (uncorrected = %g)" % (
-                         region_start, region_end, size, pvalue * bonf_fac, pvalue))
+                     " bonferroni corrected pvalue = %g (uncorrected = %g)",
+                     region_start, region_end, size, pvalue * bonf_fac, pvalue)
 
 
 def main():
@@ -192,7 +194,7 @@ def main():
     (opts, args) = parser.parse_args()
 
     snp_files = args
-    if len(snp_files)<2:
+    if len(snp_files) < 2:
         parser.error("Need more than two SNP files.")
         sys.exit(1)
 
@@ -204,28 +206,32 @@ def main():
     for (required_opt, opt_descr) in [
             (opts.seq_len, "sequence length"),
             (opts.min_size, "minimum region size"),
-            ]:
+    ]:
         if not required_opt:
-            LOG.fatal("Missing %s argument" % opt_descr)
+            LOG.fatal("Missing %s argument", opt_descr)
             sys.exit(1)
- 
-    LOG.info("Init sig-level=%f; min region size = %d" % (
-        SIG_LEVEL, opts.min_size))
+
+    LOG.info("Init sig-level=%f; min region size = %d",
+             SIG_LEVEL, opts.min_size)
 
     excl_pos = []
     if opts.fexclude:
         excl_pos = read_exclude_pos_file(opts.fexclude)
-        LOG.info("Excluding %d positions" % len(excl_pos))
+        LOG.info("Excluding %d positions", len(excl_pos))
 
     snps = []
     for snp_file in snp_files:
-        more_snps = snp.parse_snp_file(snp_file)
+        vcf_fh = vcf.VCFReader(filename=snp_file)
+        more_snps = [v for v in vcf_fh]
+        if any([not v.is_snp for v in more_snps]):
+            sys.stderr.write("WARNING: Only supporting SNPs! Automatically removing others\n")
+            more_snps = [v for v in more_snps if v.is_snp]
         snps.extend(more_snps)
-        LOG.info("Parsed %d SNPs from %s" % (len(more_snps), snp_file))
-        
+        LOG.info("Parsed %d SNPs from %s", len(more_snps), snp_file)
+
     find_coldspot_regions(snps, opts.seq_len, opts.min_size, excl_pos)
-    
-    
+
+
 if __name__ == "__main__":
     main()
     LOG.info("Successful program exit")

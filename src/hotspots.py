@@ -28,9 +28,8 @@ SIG_LEVEL = 0.05
 __author__ = "Andreas Wilm"
 __version__ = "0.1"
 __email__ = "wilma@gis.a-star.edu.sg"
-__copyright__ = "2012, 2013 Genome Institute of Singapore"
+__copyright__ = "2012-2016 Genome Institute of Singapore"
 __license__ = "GPL2"
-__credits__ = [""]
 __status__ = "eternal alpha"
 
 #global logger
@@ -64,9 +63,8 @@ def cmdline_parser():
                       dest="step_size",
                       type="int",
                       help="Step size to use (e.g. 5)")
-    parser.add_option("", "--snpfile",
-                      dest="snp_file",
-                      help="SNP file to read")
+    parser.add_option("", "--vcf",
+                      help="VCF file to read")
     parser.add_option("", "--seqlen",
                       dest="seq_len",
                       type="int",
@@ -109,21 +107,21 @@ def read_exclude_pos_file(fexclude):
 def find_hotspot_windows(snps, seq_len, win_size, step_size, excl_pos):
     """FIXME
     """
-    
+
     bonf_fac = (seq_len-len(excl_pos))/float(win_size)
     snp_prob = len(snps)/float(seq_len-len(excl_pos))
 
     LOG.info("Using a window size of %d with a step size of %d."
-             " SNP prob is %g" % (win_size, step_size, snp_prob))
-    
+             " SNP prob is %g", win_size, step_size, snp_prob)
+
     curpos = 0
     #for win_start in range(0, seq_len, win_size):
     while curpos < seq_len-win_size:
         win_start = curpos
         num_snps_in_win = len([s for s in snps
-                               if s.pos>=win_start 
-                               and s.pos<=(win_start+win_size) 
-                               and s.pos not in excl_pos])
+                               if s.POS-1 >= win_start
+                               and s.POS-1 <= (win_start+win_size)
+                               and s.POS-1 not in excl_pos])
         if num_snps_in_win > 0:
             #print win_start, win_start+win_size, num_snps_in_win
 
@@ -137,16 +135,16 @@ def find_hotspot_windows(snps, seq_len, win_size, step_size, excl_pos):
                 pvalue = binom_test(num_snps_in_win, win_size, snp_prob)
             except ValueError:
                 LOG.fatal("The following failed: binom_test(num_snps_in_win=%d,"
-                          " win_size=%d, snp_prob=%d)" % (
-                    num_snps_in_win, win_size, snp_prob))
+                          " win_size=%d, snp_prob=%d)",
+                          num_snps_in_win, win_size, snp_prob)
                 raise
-            #LOG.warn("DEBUG: window %d-%d has %d SNPs which translates into a raw pvalue of %g" % (
-            #        win_start, win_start+win_size, num_snps_in_win, pvalue))
+            LOG.debug("window %d-%d has %d SNPs which translates into a raw pvalue of %g",
+                win_start, win_start+win_size, num_snps_in_win, pvalue)
             if pvalue * bonf_fac <= SIG_LEVEL:
                 print "window %d-%d has %d SNPs which translates into a bonferroni corrected pvalue of %g" % (
-                    win_start, win_start+win_size, 
+                    win_start, win_start+win_size,
                     num_snps_in_win, pvalue * bonf_fac)
-                
+
         curpos += step_size
 
 
@@ -168,26 +166,30 @@ def main():
     if opts.debug:
         LOG.setLevel(logging.DEBUG)
 
-    for (required_opt, opt_descr) in [(opts.win_size, "window size"), 
+    for (required_opt, opt_descr) in [(opts.win_size, "window size"),
                                       (opts.step_size, "step size"),
-                                      (opts.snp_file, "SNP file"),
+                                      (opts.vcf, "VCF file"),
                                       (opts.seq_len, "sequence length")]:
         if not required_opt:
-            LOG.fatal("Missing %s argument" % opt_descr)
+            LOG.fatal("Missing %s argument", opt_descr)
             sys.exit(1)
 
     excl_pos = []
     if opts.fexclude:
         excl_pos = read_exclude_pos_file(opts.fexclude)
-        LOG.info("Excluding %d positions" % len(excl_pos))
-            
-    snps = snp.parse_snp_file(opts.snp_file)
-    LOG.info("Parsed %d SNPs from %s" % (len(snps), opts.snp_file))
+        LOG.info("Excluding %d positions", len(excl_pos))
 
-    find_hotspot_windows(snps, opts.seq_len, opts.win_size, 
+    vcf_fh = vcf.VCFReader(filename=opts.vcf)
+    snps = [v for v in vcf_fh]
+    if any([not v.is_snp for v in snps]):
+        sys.stderr.write("WARNING: Only supporting SNPs! Automatically removing others\n")
+        snps = [v for v in snps if v.is_snp]
+    LOG.info("Parsed %d SNPs from %s", len(snps), opts.vcf)
+
+    find_hotspot_windows(snps, opts.seq_len, opts.win_size,
                          opts.step_size, excl_pos)
-    
-    
+
+
 if __name__ == "__main__":
     main()
     LOG.info("Successful program exit")
