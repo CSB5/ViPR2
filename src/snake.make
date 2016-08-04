@@ -38,11 +38,13 @@ def fasta_iter(fasta_name):
 rule final:
     input:
         os.path.join(RESULT_DIR_ASSEMBLY, "{}.mdups.indelprep.vcf.gz".format(config['SAMPLENAME'])),
+        os.path.join(RESULT_DIR_ASSEMBLY, "{}.mdups.indelprep.cluster.txt".format(config['SAMPLENAME'])),
         os.path.join(RESULT_DIR_ASSEMBLY, "{}.mdups.indelprep.csv".format(config['SAMPLENAME'])),
         os.path.join(RESULT_DIR_ASSEMBLY, "{}.mdups.indelprep.maprate.txt".format(config['SAMPLENAME'])),
         os.path.join(RESULT_DIR_ASSEMBLY, "{}.mdups.indelprep.covplot.pdf".format(config['SAMPLENAME'])),
         os.path.join(RESULT_DIR_ASSEMBLY, "{}.indelprep.covplot.pdf".format(config['SAMPLENAME'])),
         os.path.join(RESULT_DIR_REFFA, "{}.mdups.indelprep.vcf.gz".format(config['SAMPLENAME'])),
+        os.path.join(RESULT_DIR_REFFA, "{}.mdups.indelprep.cluster.txt".format(config['SAMPLENAME'])),
         os.path.join(RESULT_DIR_REFFA, "{}.mdups.indelprep.csv".format(config['SAMPLENAME'])),
         os.path.join(RESULT_DIR_REFFA, "{}.mdups.indelprep.maprate.txt".format(config['SAMPLENAME'])),
         os.path.join(RESULT_DIR_REFFA, "{}.mdups.indelprep.covplot.pdf".format(config['SAMPLENAME'])),
@@ -317,6 +319,16 @@ rule vcf2csv:
         """
     message:
         "Converting vcf to csv"
+
+rule haplo_cluster:
+	input:
+		"{prefix}.vcf.gz"
+	output:
+		"{prefix}.cluster.txt"
+	shell:
+		"{config[HAPLO_CLUSTER]} -i {input} -o {output}"
+    message:
+		"Running haplo cluster"
 
 
 rule report:

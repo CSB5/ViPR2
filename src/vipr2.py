@@ -77,6 +77,8 @@ CONF['PRIMER_LEN'] = 25
 CONF['VCF2CSV'] = os.path.abspath(
     os.path.join(os.path.dirname(sys.argv[0]), "vcf2csv.py"))
 CONF['MUMMERDIR'] = "/mnt/software/unstowable/mummer-3.23/"
+CONF['haplo_cluster.py'] = os.path.abspath(
+        os.path.join(os.path.dirname(sys.argv[0]), "haplo_cluster.py"))
 
 # settings
 CONF['DEBUG'] = False
