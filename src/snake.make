@@ -321,14 +321,14 @@ rule vcf2csv:
         "Converting vcf to csv"
 
 rule haplo_cluster:
-	input:
-		"{prefix}.vcf.gz"
-	output:
-		"{prefix}.cluster.txt"
-	shell:
-		"{config[HAPLO_CLUSTER]} -i {input} -o {output}"
+    input:
+        "{prefix}.vcf.gz"
+    output:
+        "{prefix}.cluster.txt"
+    shell:
+        "{config[HAPLO_CLUSTER]} -i {input} -o {output}"
     message:
-		"Running haplo cluster"
+        "Running haplo cluster"
 
 
 rule report:
