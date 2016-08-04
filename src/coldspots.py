@@ -219,17 +219,14 @@ def main():
         excl_pos = read_exclude_pos_file(opts.fexclude)
         LOG.info("Excluding %d positions", len(excl_pos))
 
-    snps = []
+    vars = []
     for snp_file in snp_files:
         vcf_fh = vcf.VCFReader(filename=snp_file)
-        more_snps = [v for v in vcf_fh]
-        if any([not v.is_snp for v in more_snps]):
-            sys.stderr.write("WARNING: Only supporting SNPs! Automatically removing others\n")
-            more_snps = [v for v in more_snps if v.is_snp]
-        snps.extend(more_snps)
-        LOG.info("Parsed %d SNPs from %s", len(more_snps), snp_file)
+        more_vars = [v for v in vcf_fh]
+        vars.extend(more_vars)
+        LOG.info("Parsed %d Vars from %s", len(more_vars), snp_file)
 
-    find_coldspot_regions(snps, opts.seq_len, opts.min_size, excl_pos)
+    find_coldspot_regions(vars, opts.seq_len, opts.min_size, excl_pos)
 
 
 if __name__ == "__main__":

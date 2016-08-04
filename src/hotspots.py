@@ -180,13 +180,10 @@ def main():
         LOG.info("Excluding %d positions", len(excl_pos))
 
     vcf_fh = vcf.VCFReader(filename=opts.vcf)
-    snps = [v for v in vcf_fh]
-    if any([not v.is_snp for v in snps]):
-        sys.stderr.write("WARNING: Only supporting SNPs! Automatically removing others\n")
-        snps = [v for v in snps if v.is_snp]
-    LOG.info("Parsed %d SNPs from %s", len(snps), opts.vcf)
+    vars = [v for v in vcf_fh]
+    LOG.info("Parsed %d variants from %s", len(vars), opts.vcf)
 
-    find_hotspot_windows(snps, opts.seq_len, opts.win_size,
+    find_hotspot_windows(vars, opts.seq_len, opts.win_size,
                          opts.step_size, excl_pos)
 
 
